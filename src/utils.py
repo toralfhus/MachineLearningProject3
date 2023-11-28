@@ -6,13 +6,15 @@ import sys
 DIR_MAIN_IMAGES = r"C:\rsna-miccai-brain-tumor-radiogenomic-classification"
 
 
-def load_images(train=True, image_mode="FLAIR"):
+def load_images(train=True, image_mode="FLAIR", return_dicom=False):
     import pydicom
 
     dir = os.path.join(DIR_MAIN_IMAGES, "train" if train else "test")
     print(dir)
     patients = os.listdir(dir)
     print("Having", len(patients), "train" if train else "test", "patients:", patients)
+
+
     for pt in patients:
 
         print(f"LOADING PT{pt} {image_mode}", end="\t")
@@ -33,13 +35,10 @@ def load_images(train=True, image_mode="FLAIR"):
         voxels = np.array(voxels)
         print(voxels.shape)
 
-        yield voxels
+        if not return_dicom:
+            yield pt, voxels
+        else:
+            yield pt, voxels, ds
 
     pass
 
-
-if __name__ == "__main__":
-    img = next(load_images(train=True))
-    from matplotlib import pyplot as plt
-    plt.imshow(img[img.shape[0] // 2])
-    plt.show()

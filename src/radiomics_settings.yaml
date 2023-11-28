@@ -1,0 +1,73 @@
+# This is an example of settings that can be used as a starting point for extractting 2D features from MR data
+# This is only intended as a starting point and is not likely to be the optimal settings for your dataset.
+# Some points in determining better values are added as comments where appropriate
+
+# When adapting and using these settings for an analysis, be sure to add the PyRadiomics version used to allow you to
+# easily recreate your extraction at a later timepoint:
+
+# #############################  Extracted using PyRadiomics version: 3.0.1  ######################################
+#from: https://github.com/AIM-Harvard/pyradiomics/blob/master/examples/exampleSettings/MR_2D_extraction.yaml
+
+imageType:
+  Original: {}
+#  LoG:
+#    sigma: [2.0, 3.0, 4.0, 5.0]
+  #Be aware though that the LoG filter ignores this and applies the filter in 3D (kernel is defined in mm). This only applies to the filter itself. Features extracted from the LoG image are then again only calculated in 2D.
+  #https://github.com/AIM-Harvard/pyradiomics/issues/519
+  Wavelet: {}
+#  Square: {}
+#  SquareRoot: {}
+#  Logarithm: {}
+#  Exponential: {}
+#  Gradient: {}
+#  LBP2D: {}
+#  LBP3D: {}
+
+featureClass:
+#  shape2D:
+  shape:
+  firstorder:
+  glcm:
+  glrlm:
+  glszm:
+  gldm:
+  ngtdm:
+
+
+setting:
+  # Normalization:
+#  normalize: False       # SUV-values already normalized
+  normalize: True       #normalize grey levels for WHOLE IMAGE (NOT ONLY ROI)
+  normalizeScale: 100
+  removeOutliers: 3
+
+
+  resegmentMode: "sigma"
+  resegmentRange: [-3, 3]
+#  resegmentRange: [-2, 2]
+  resegmentShape: False   # use resegmented intensity mask ALSO as morphologic mask if true (instead of original ROI)
+
+  # Resampling:
+  # first dimensions always correspond to in-plane resolution.
+  # Z-plane resolution should not be modified to avoid mask errors (> than 1 slice after resampling)
+#  interpolator: 'sitkBSpline'
+#  resampledPixelSpacing: [1, 1, 0.167]
+#  padDistance: 10
+#  preCrop: true
+
+
+  # 2D settings
+  # force2Ddimension setting is relative to the acquisition plane.
+  # For example, the axial plane (0) corresponds to the acquisition plane (axial, sagittal or coronal) of the MRI volume.
+  # Therefore, in most cases this setting should not be modified.
+  force2D: false  # THIS SHOULD BE FALSE IF *ACTUAL* DIMENSION OF INPUT IMAGE IS 2 (will then CUT OFF first dimension and extract in 1D!!!!!!!!!!!! (see comment chain: https://bytemeta.vip/repo/AIM-Harvard/pyradiomics/issues/710)
+#  force2Ddimension: 0
+
+
+  # Image discretization:
+  # This parameter should be estimated by analyzing the dataset firstorder range and chosen to be as close as possible to the 30-130 range.
+  binCount: 32  # or 64?
+
+
+  # Misc:
+  label: 1
