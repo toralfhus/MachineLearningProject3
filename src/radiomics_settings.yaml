@@ -11,21 +11,21 @@
 imageType:
   Original: {}
 #  LoG:
-#    sigma: [2.0, 3.0, 4.0, 5.0]
+#    sigma: [2.0]
   #Be aware though that the LoG filter ignores this and applies the filter in 3D (kernel is defined in mm). This only applies to the filter itself. Features extracted from the LoG image are then again only calculated in 2D.
   #https://github.com/AIM-Harvard/pyradiomics/issues/519
-  Wavelet: {}
+#  Wavelet: {}
 #  Square: {}
 #  SquareRoot: {}
-#  Logarithm: {}
+  Logarithm: {}
 #  Exponential: {}
-#  Gradient: {}
+  Gradient: {}
 #  LBP2D: {}
 #  LBP3D: {}
 
 featureClass:
 #  shape2D:
-  shape:
+#  shape:   # don't have segmentations, therefore no shape
   firstorder:
   glcm:
   glrlm:
@@ -36,7 +36,7 @@ featureClass:
 
 setting:
   # Normalization:
-#  normalize: False       # SUV-values already normalized
+#  normalize: False
   normalize: True       #normalize grey levels for WHOLE IMAGE (NOT ONLY ROI)
   normalizeScale: 100
   removeOutliers: 3
