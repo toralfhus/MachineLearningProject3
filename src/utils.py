@@ -45,7 +45,7 @@ def load_outcome(id_list):
     y = y.drop_duplicates()     # drop multiple entries per patient
     y = y.set_index("patientId")
     y = y["Target"]
-    print("Num patient outcomes:", y.shape)
+    print("Num patient outcomes total:", y.shape, end="\t")
 
     # print(y["Target"].value_counts())
     # id_set_y = set(y.index.values)
@@ -53,4 +53,9 @@ def load_outcome(id_list):
     # print(len(id_set_y.intersection(set(id_list))))
 
     y = y.reindex(id_list)  # retain subset, in same order as, id_list
+    print("after dropping:", len(y), end="\t")
+    num_per_class = np.unique(y, return_counts=True)
+    print(f"per class: N_{num_per_class[0][0]}={num_per_class[1][0]} ({num_per_class[1][0] / len(y) * 100 :.1f}%) / "
+          f"N_{num_per_class[0][1]}={num_per_class[1][1]} ({num_per_class[1][1] / len(y) * 100 :.1f}%)")
+
     return y
