@@ -5,7 +5,7 @@ of healthy and pneumonia patients.
 """
 
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, GlobalAveragePooling2D
 from tensorflow.keras.models import Model
 
@@ -33,6 +33,21 @@ from PIL import Image
 #root_path_to_data = "../rsna-pneumonia-detection-challenge"
 root_path_to_data = "rsna-pneumonia-detection-challenge"
 path_to_save_cnn_model = "pneumonia_cnn.h5"
+
+def make_dirs_for_preprocessed_images(root_path_to_data):
+    
+        train_images_dir = os.path.join(root_path_to_data, 'stage_2_train_images_preprocessed')
+        test_images_dir = os.path.join(root_path_to_data, 'stage_2_test_images_preprocessed')
+    
+        train_images_dir_penum = os.path.join(train_images_dir, 'penum')
+        train_images_dir_norm = os.path.join(train_images_dir, 'normal')
+    
+        test_images_dir_penum = os.path.join(test_images_dir, 'penum')
+        test_images_dir_norm = os.path.join(test_images_dir, 'normal')
+    
+        for dir in [train_images_dir_penum, train_images_dir_norm, test_images_dir_penum, test_images_dir_norm]:
+            if not os.path.exists(dir):
+                os.makedirs(dir)
 
 # Load the csv as a dict
 
@@ -230,6 +245,19 @@ def make_base_model(path_to_save_cnn_model = 'pneumonia_cnn.h5', save_plot = Fal
 
     print("Model saved to {}".format(path_to_save_cnn_model))
 
+    # Now saving training and validation accuracy and loss
+
+    training_loss = history.history['loss']
+    training_acc = history.history['acc']
+    validation_loss = history.history['val_loss']
+    validation_acc = history.history['val_acc']
+    epochs = range(len(training_acc))
+
+    df = pd.DataFrame({'training_loss': training_loss, 'training_acc': training_acc,
+                          'validation_loss': validation_loss, 'validation_acc': validation_acc})
+    
+    df.to_csv('training_validation_loss_acc.csv')
+
     if save_plot:
     # Plot the training and validation accuracy and loss
 
@@ -261,6 +289,8 @@ def make_base_model(path_to_save_cnn_model = 'pneumonia_cnn.h5', save_plot = Fal
 
         plt.savefig('training_validation_loss.png')
 
+    return model
+
 # Make a prediction on the test set
 
 def predict_and_plot(path_to_test_data):
@@ -286,7 +316,7 @@ def predict_and_plot(path_to_test_data):
 
     # Load the model
 
-    model = tf.keras.models.load_model(path_to_save_cnn_model)
+    model = load_model(path_to_save_cnn_model)
 
     # Make predictions
 
@@ -308,6 +338,14 @@ def predict_and_plot(path_to_test_data):
     plt.ylabel('True positive rate')
 
     plt.show()
+
+#predict_and_plot('stage_2_test_images_preprocessed')
+
+model = load_model(path_to_save_cnn_model)
+model.summary()
+#predict_and_plot('stage_2_test_images_preprocessed')
+
+sys.exit()
 
 # Try transfer learning from resnet
 
