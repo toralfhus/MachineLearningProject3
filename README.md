@@ -12,6 +12,9 @@ This repository contains functions and outputs for project 3 of course applied d
 
 The task focus on using different tools to classify x-ray images into either normal, or diagnosed with pnemonia.
 
+### Hand crafted features
+### Radiomics features with FFN
+
 ### CNN
 
 A CNN is used for comparison, and the main functionality is found in the script CNN.py.
@@ -21,6 +24,8 @@ The data has to be in a specific structure for the dataloaders to work, and a pr
 The CNN uses transfer learning with the VCC16, that has to be downloaded beforehand, for example from here: https://www.kaggle.com/code/ligtfeather/x-ray-image-classification-using-pytorch
 
 The number of epochs are set relatively low, but can be increased.
+
+For training, 20 percent of the already defined training data was used to validation during training.
 
 ## Installation
 
@@ -39,4 +44,4 @@ Licenced under the WTFPL http://www.wtfpl.net/
 
 ## Files and Directories
 
-Data from https://www.kaggle.com/competitions/rsna-miccai-brain-tumor-radiogenomic-classification/overview
+Data set from https://www.kaggle.com/c/rsna-pneumonia-detection-challenge/
