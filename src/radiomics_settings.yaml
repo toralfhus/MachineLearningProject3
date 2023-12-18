@@ -10,15 +10,15 @@
 
 imageType:
   Original: {}
-#  LoG:
-#    sigma: [2.0]
+  LoG:
+    sigma: [1.0]
   #Be aware though that the LoG filter ignores this and applies the filter in 3D (kernel is defined in mm). This only applies to the filter itself. Features extracted from the LoG image are then again only calculated in 2D.
   #https://github.com/AIM-Harvard/pyradiomics/issues/519
-#  Wavelet: {}
-#  Square: {}
-#  SquareRoot: {}
+  Wavelet: {}
+  Square: {}
+  SquareRoot: {}
   Logarithm: {}
-#  Exponential: {}
+  Exponential: {}
   Gradient: {}
 #  LBP2D: {}
 #  LBP3D: {}
