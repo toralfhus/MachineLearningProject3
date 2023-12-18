@@ -1,409 +1,297 @@
+"""
+Script to perform the CNN with transfer learning
+Heavily inspired by https://www.kaggle.com/code/ligtfeather/x-ray-image-classification-using-pytorch
 
 """
-Script to perform simple CNN classification of a dataset of x-ray images 
-of healthy and pneumonia patients.
-"""
 
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, GlobalAveragePooling2D
-from tensorflow.keras.models import Model
-
-import os
-import numpy as np
-from sklearn.model_selection import train_test_split
-import pandas as pd
-import sys
-import csv
-import pydicom
-from skimage.transform import resize
+import copy
 import matplotlib.pyplot as plt
-import imageio
-    
+import numpy as np
+import pandas as pd 
+import os
+import seaborn as sns
+import skimage
+from skimage import io, transform
 from sklearn.metrics import confusion_matrix
-from sklearn.metrics import roc_curve
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+from torchvision import datasets, models, transforms
 
-from tensorflow.keras.applications import ResNet50
+EPOCHS = 5
+data_dir = "rsna-pneumonia-detection-challenge/"
+TEST = 'stage_2_test_images_preprocessed_hires_jpg'
+TRAIN = 'stage_2_train_images_preprocessed_hires_jpg'
+VAL ='stage_2_val_images_preprocessed_hires_jpg'
 
-from PIL import Image
+# Output values
 
-# Do some checks on the training and test data against the labels, I do believe that
-# the test data is not labelled?
+name_of_model = "CNN_transfer_learning"
 
-#root_path_to_data = "../rsna-pneumonia-detection-challenge"
-root_path_to_data = "rsna-pneumonia-detection-challenge"
-path_to_save_cnn_model = "pneumonia_cnn.h5"
-
-def make_dirs_for_preprocessed_images(root_path_to_data):
+def data_transforms(phase):
+    if phase == TRAIN:
+        transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485], [0.229]),
+        ])
+        
+    if phase == VAL:
+        transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485], [0.229]),
+        ])
     
-        train_images_dir = os.path.join(root_path_to_data, 'stage_2_train_images_preprocessed')
-        test_images_dir = os.path.join(root_path_to_data, 'stage_2_test_images_preprocessed')
-    
-        train_images_dir_penum = os.path.join(train_images_dir, 'penum')
-        train_images_dir_norm = os.path.join(train_images_dir, 'normal')
-    
-        test_images_dir_penum = os.path.join(test_images_dir, 'penum')
-        test_images_dir_norm = os.path.join(test_images_dir, 'normal')
-    
-        for dir in [train_images_dir_penum, train_images_dir_norm, test_images_dir_penum, test_images_dir_norm]:
-            if not os.path.exists(dir):
-                os.makedirs(dir)
+    if phase == TEST:
+        transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485], [0.229]),
+        ])        
+        
+    return transform
 
-# Load the csv as a dict
+# Check if GPU is available
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(device)
 
-def load_dicom_as_array(dicom_file):
-    dicom_data = pydicom.read_file(dicom_file)
-    image_array = dicom_data.pixel_array
-    return image_array
+# Set up the data loaders and data sets
 
-def scrub_preprosessed_images(root_path_to_data):
+image_datasets = {x: datasets.ImageFolder(os.path.join(data_dir, x), data_transforms(x)) 
+                  for x in [TRAIN, VAL, TEST]}
+
+dataloaders = {TRAIN: torch.utils.data.DataLoader(image_datasets[TRAIN], batch_size = 32, shuffle=True), 
+               VAL: torch.utils.data.DataLoader(image_datasets[VAL], batch_size = 1, shuffle=True), 
+               TEST: torch.utils.data.DataLoader(image_datasets[TEST], batch_size = 1, shuffle=True)}
+
+# Identify the classes
+
+dataset_sizes = {x: len(image_datasets[x]) for x in [TRAIN, VAL]}
+classes = image_datasets[TRAIN].classes
+class_names = image_datasets[TRAIN].classes
+
+def train_model(model, criterion, optimizer, scheduler, num_epochs):
     """
-    Delete the content of the directories where the preprocessed images are stored.
+    Function to train the model
+
+    Parameters
+    ----------
+    model : pytorch model
+        The model to be trained
+    criterion : pytorch loss function
+        The loss function to be used
+    optimizer : pytorch optimizer
+        The optimizer to be used
+    scheduler : pytorch scheduler
+        The scheduler to be used
+    num_epochs : int
+        The number of epochs to train for
+
+    Returns
+    -------
+    model : pytorch model
+        The trained model
+
+    TODO: The saving of train and validation loss and accuracy should be 
+          moved to a separate function or at least handled a bit less clunky
+
+
     """
-
-    train_images_dir = os.path.join(root_path_to_data, 'stage_2_train_images_preprocessed')
-    test_images_dir = os.path.join(root_path_to_data, 'stage_2_test_images_preprocessed')
-
-    train_images_dir_penum = os.path.join(train_images_dir, 'penum')
-    train_images_dir_norm = os.path.join(train_images_dir, 'normal')
-
-    test_images_dir_penum = os.path.join(test_images_dir, 'penum')
-    test_images_dir_norm = os.path.join(test_images_dir, 'normal')
-
-    for dir in [train_images_dir_penum, train_images_dir_norm, test_images_dir_penum, test_images_dir_norm]:
-        for file in os.listdir(dir):
-            os.remove(os.path.join(dir, file))
-
-def preprocess_image(image_array, target_size = (150, 150), 
-                     normalization_value = None):
-
-    image_array = resize(image_array, target_size, anti_aliasing=True)
-
-    image_array = image_array/np.max(image_array)
-    image_array = image_array*255
-
-    if normalization_value is not None:
-
-        image_array = image_array / normalization_value
-
-    image_array = image_array.astype(np.uint8)
-
-    return image_array
-
-
-def load_csv_as_dict(csv_file):
-
-    data_dict = {}
-    with open(csv_file, 'r') as f:
-        reader = csv.reader(f)
-        header = next(reader)
-
-        for row in reader:
-            patient_id = row[0]
-            target = row[-1]
-            data_dict[patient_id] = target
-
-    return data_dict
-
-def preprocess_dataset(root_path_to_data, scrub_pros = False):
-
-    if scrub_pros:
-        scrub_preprosessed_images(root_path_to_data)
-
-    label_file = os.path.join(root_path_to_data, 'stage_2_train_labels.csv')
-    label_dict = load_csv_as_dict(label_file)
-
-    # Check with a single image
-
-    # Make new directory for the preprocessed images
-
-    all_training_images = os.listdir(os.path.join(root_path_to_data, 'stage_2_train_images'))
-
-    # Split into training and test sets
-
-    train_images, test_images = train_test_split(all_training_images, test_size=0.2, random_state=42)
-
-    # Create a csv file with training and test-data from the training set
-
-    f_name_train_test_split = 'train_test_split.csv'
-
-    if not os.path.exists(f_name_train_test_split):
-
-        csv_content = 'patientId,type\n'
-
-        for i in range(len(all_training_images)):
-            if all_training_images[i] in train_images:
-                line_csv = all_training_images[i] + ',train' 
-            else:
-                line_csv = all_training_images[i] + ',test' 
-
-            csv_content += line_csv + '\n'
-
-        with open('train_test_split.csv', 'w') as f:
-            f.write(csv_content)
-
-    train_images_dir = os.path.join(root_path_to_data, 'stage_2_train_images_preprocessed')
-    test_images_dir = os.path.join(root_path_to_data, 'stage_2_test_images_preprocessed')
-
-    train_images_dir_penum = os.path.join(train_images_dir, 'penum')
-    train_images_dir_norm = os.path.join(train_images_dir, 'normal')
-
-    test_images_dir_penum = os.path.join(test_images_dir, 'penum')
-    test_images_dir_norm = os.path.join(test_images_dir, 'normal')
-
-    train_images
-
-    img_list = load_csv_as_dict(f_name_train_test_split)
-
-    counter = 0
-
-    #sys.exit()
-
-    for key in img_list.keys():
-
-        f_name = key 
-        f_name_png = key.replace('.dcm', '.png')
-
-        img_arr = load_dicom_as_array(os.path.join(root_path_to_data, 'stage_2_train_images', f_name))
-        img_arr = preprocess_image(img_arr, normalization_value=None)
-
-
-        # Now sort in train, test and normal and pneumonia
-
-        if img_list[key] == 'train':
-
-            label_key = key.split('.')[0] # Hacky AF
-
-            if int(label_dict[label_key]) == 0:
-                imageio.imwrite(os.path.join(train_images_dir_norm, f_name_png), img_arr)
-            else:
-                imageio.imwrite(os.path.join(train_images_dir_penum, f_name_png), img_arr)
-
-        else:
-
-                if int(label_dict[label_key]) == 0:
-                    imageio.imwrite(os.path.join(test_images_dir_norm, f_name_png), img_arr)
-                else:
-                    imageio.imwrite(os.path.join(test_images_dir_penum, f_name_png), img_arr)
-
-        counter = counter + 1
-
-        print("Preprocessed {} images out of {}, {}".format(
-            counter, len(img_list.keys()), counter/len(img_list.keys())), end='\r')
-
-def make_base_model(path_to_save_cnn_model = 'pneumonia_cnn.h5', save_plot = False):
-
-    train_dataget = ImageDataGenerator(rescale=1./255)
-    test_dataget = ImageDataGenerator(rescale=1./255)
-
-    train_generator = train_dataget.flow_from_directory(
-        os.path.join(root_path_to_data, 'stage_2_train_images_preprocessed'),
-        target_size=(150, 150),
-        batch_size=32,
-        class_mode='binary')
-
-    validation_generator = test_dataget.flow_from_directory(
-        os.path.join(root_path_to_data, 'stage_2_test_images_preprocessed'),
-        target_size=(150, 150),
-        batch_size=32,
-        class_mode='binary')
-
-    model = Sequential([
-        Conv2D(32, (3, 3), activation='relu', input_shape=(150, 150, 3)),
-        MaxPooling2D(2, 2),
-
-        Conv2D(64, (3, 3), activation='relu'),
-        MaxPooling2D(2, 2),
-
-        Conv2D(128, (3, 3), activation='relu'),
-        MaxPooling2D(2, 2),
-
-        Flatten(),
-
-        Dense(512, activation='relu'),
-        Dropout(0.5),
-        Dense(1, activation='sigmoid')
-    ])
-
-    print("Model summary:")
-    model.summary()
-
-    model.compile(loss='binary_crossentropy',
-                    optimizer='adam',
-                    metrics=['acc'])
-
-    print("Model compiled")
-
-    history = model.fit(
-        train_generator,
-        steps_per_epoch=100,
-        epochs=10,
-        validation_data=validation_generator,
-        validation_steps=50)
-
-    model.save(path_to_save_cnn_model)
-
-    print("Model saved to {}".format(path_to_save_cnn_model))
-
-    # Now saving training and validation accuracy and loss
-
-    training_loss = history.history['loss']
-    training_acc = history.history['acc']
-    validation_loss = history.history['val_loss']
-    validation_acc = history.history['val_acc']
-    epochs = range(len(training_acc))
-
-    df = pd.DataFrame({'training_loss': training_loss, 'training_acc': training_acc,
-                          'validation_loss': validation_loss, 'validation_acc': validation_acc})
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_acc = 0.0
+
+    training_loss_plotting = np.zeros(num_epochs)
+    validation_loss_plotting = np.zeros(num_epochs)
+    training_acc_plotting = np.zeros(num_epochs)
+    validation_acc_plotting = np.zeros(num_epochs)
     
-    df.to_csv('training_validation_loss_acc.csv')
+    for epoch in range(num_epochs):
+        print("Epoch: {}/{}".format(epoch+1, num_epochs))
+        print("="*10)
+        
+        for phase in [TRAIN, VAL]:
+            if phase == TRAIN:
+                scheduler.step()
+                model.train()
+            else:
+                model.eval()
+            running_loss = 0.0
+            running_corrects = 0
+            for data in dataloaders[phase]:
+                inputs, labels = data
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                optimizer.zero_grad()
+                with torch.set_grad_enabled(phase==TRAIN):
+                    outputs = model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = criterion(outputs, labels)
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer.step()
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
 
-    if save_plot:
-    # Plot the training and validation accuracy and loss
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects.double() / dataset_sizes[phase]
 
-        acc = history.history['acc']
-        val_acc = history.history['val_acc']
+            print('{} Loss: {:.4f} Acc: {:.4f}'.format(
+                phase, epoch_loss, epoch_acc))
 
-        loss = history.history['loss']
-        val_loss = history.history['val_loss']
+            if phase == 'val' and epoch_acc > best_acc:
+                best_acc = epoch_acc
+                best_model_wts = copy.deepcopy(model.state_dict())
 
-        epochs = range(len(acc))
+            if phase == TRAIN:
+                training_loss_plotting[epoch] = epoch_loss
+                training_acc_plotting = epoch_acc
 
-        plt.figure()
-        plt.plot(epochs, acc, 'bo', label='Training accuracy')
-        plt.plot(epochs, val_acc, 'r', label='Validation accuracy')
+            elif phase == VAL:
+                validation_loss_plotting[epoch] = epoch_loss
+                validation_acc_plotting[epoch] = epoch_acc
 
-        plt.title('Training and validation accuracy')
-        plt.legend()
 
-        plt.savefig('training_validation_accuracy.png')
+    print('Best val Acc: {:4f}'.format(best_acc))
+    model.load_state_dict(best_model_wts)
 
-        plt.figure()
+    try:
 
-        plt.plot(epochs, loss, 'bo', label='Training loss')
-        plt.plot(epochs, val_loss, 'r', label='Validation loss')
+        np.save("train_loss_epoch.npy", training_loss_plotting)
+        np.save("val_loss_epoch.npy", validation_loss_plotting)
+        np.save("train_acc_epoch.npy", training_acc_plotting)
+        np.save("val_acc_epoch.npy", validation_acc_plotting)
 
-        plt.title('Training and validation loss')
+    except:
 
-        plt.legend()
-
-        plt.savefig('training_validation_loss.png')
-
+        print("Could not save the loss and accuracy arrays")
+    
     return model
 
-# Make a prediction on the test set
+def test_model():
+    """
+    Function to test the model - this is done on the hold-out test set
 
-def predict_and_plot(path_to_test_data):
+    Returns
+    -------
+    true_labels : list
+        List of true labels
+    pred_labels : list
+        List of predicted labels
+    running_correct : float
+        Number of correct predictions
+    running_total : float
+        Total number of predictions
+    acc : float
+        Accuracy of the model
+    """
+    running_correct = 0.0
+    running_total = 0.0
+    true_labels = []
+    pred_labels = []
+    with torch.no_grad():
+        for data in dataloaders[TEST]:
+            inputs, labels = data
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            true_labels.append(labels.item())
+            outputs = model_pre(inputs)
+            _, preds = torch.max(outputs.data, 1)
+            pred_labels.append(preds.item())
+            running_total += labels.size(0)
+            running_correct += (preds == labels).sum().item()
+        acc = running_correct/running_total
+    return (true_labels, pred_labels, running_correct, running_total, acc)
 
-    test_images_dir = os.path.join(root_path_to_data, path_to_test_data)
+# Load the pretrained model
 
-    test_images_dir_penum = os.path.join(test_images_dir, 'penum')
-    test_images_dir_norm = os.path.join(test_images_dir, 'normal')
+model_pre = models.vgg16()
+model_pre.load_state_dict(torch.load("vgg16-397923af.pth"))
 
-    test_images_penum = os.listdir(test_images_dir_penum)
+# Print the model for inspection:
 
-    test_images_norm = os.listdir(test_images_dir_norm)
+for param in model_pre.features.parameters():
+    param.required_grad = False
 
-    test_images_penum = [os.path.join(test_images_dir_penum, f) for f in test_images_penum]
+num_features = model_pre.classifier[6].in_features
+features = list(model_pre.classifier.children())[:-1] 
+features.extend([nn.Linear(num_features, len(class_names))])
+model_pre.classifier = nn.Sequential(*features) 
+print(model_pre)
 
-    test_images_norm = [os.path.join(test_images_dir_norm, f) for f in test_images_norm]
+# Set the model to the device
 
-    test_images = test_images_penum + test_images_norm
+model_pre = model_pre.to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.SGD(model_pre.parameters(), lr=0.001, momentum=0.9, weight_decay=0.01)
+# Decay LR by a factor of 0.1 every 10 epochs
+exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
-    test_images_labels = [1]*len(test_images_penum) + [0]*len(test_images_norm)
+# Train the model
+model_pre = train_model(model_pre, criterion, optimizer, exp_lr_scheduler, num_epochs=EPOCHS)
 
-    test_images_labels = np.array(test_images_labels)
-
-    # Load the model
-
-    model = load_model(path_to_save_cnn_model)
-
-    # Make predictions
-
-    predictions = model.predict(test_images)
-
-    # Make a confusion matrix
+# Save the model for posterity
+torch.save({
+    'model_state_dict': model_pre.state_dict(),
+    'optimizer_state_dict': optimizer.state_dict(),
+    # You can include other elements as needed (e.g., epoch, loss history, etc.)
+}, name_of_model + '.pth')
 
 
-    confusion_matrix(test_images_labels, predictions)
+# Perform plotting - might crash
 
-    # Make a ROC curve
+try:
 
+    training_loss = np.load("train_loss_epoch.npy")
+    validation_loss = np.load("val_loss_epoch.npy")
+    training_acc =  np.load("train_acc_epoch.npy")
+    validation_acc = np.load("val_acc_epoch.npy")
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(training_loss, label = "Training loss")
+    ax.plot(validation_loss, label = "Validation loss")
+    ax.set_ylabel("Loss")
+    ax.set_xlabel("Epoch")
+    ax.set_ylim([None, 0.7])
+    plt.legend()
+    sns.despine()
+
+    plt.savefig("Loss_CNN.png", dpi = 600)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(training_acc, label = "Training Accuracy")
+    ax.plot(validation_acc, label = "Validation Accuracy")
+    ax.set_ylabel("Accuracy")
+    ax.set_xlabel("Epoch")
+
+    ax.set_ylim([None, 0.9])
+    plt.legend()
+    sns.despine()
+
+    plt.savefig("Accuracy_CNN.png", dpi = 600)
+
+except:
+
+    print("Could not plot the loss and accuracy arrays")
+
+# Perform testing
     
-    fpr, tpr, thresholds = roc_curve(test_images_labels, predictions)
+true_labels, pred_labels, running_correct, running_total, acc = test_model()
 
-    plt.plot(fpr, tpr)
+# Print the accuracy
+print("Total Correct: {}, Total Test Images: {}".format(running_correct, running_total))
+print("Test Accuracy: ", acc)
 
-    plt.xlabel('False positive rate')
-    plt.ylabel('True positive rate')
+# Plot the confusion matrix
 
-    plt.show()
-
-#predict_and_plot('stage_2_test_images_preprocessed')
-
-model = load_model(path_to_save_cnn_model)
-model.summary()
-#predict_and_plot('stage_2_test_images_preprocessed')
-
-sys.exit()
-
-# Try transfer learning from resnet
-
-train_dataget = ImageDataGenerator(rescale=1./255)
-test_dataget = ImageDataGenerator(rescale=1./255)
-
-train_generator = train_dataget.flow_from_directory(
-    os.path.join(root_path_to_data, 'stage_2_train_images_preprocessed'),
-    target_size=(150, 150),
-    batch_size=32,
-    class_mode='binary')
-
-validation_generator = test_dataget.flow_from_directory(
-    os.path.join(root_path_to_data, 'stage_2_test_images_preprocessed'),
-    target_size=(150, 150),
-    batch_size=32,
-    class_mode='binary')
-
-base_model = ResNet50(weights='imagenet', include_top=False,
-                      input_shape=(150, 150, 3))
-
-for layer in base_model.layers:
-    layer.trainable = False
-
-x = base_model.output
-x = GlobalAveragePooling2D()(x)
-x = Dense(512, activation='relu')(x)
-predictions = Dense(1, activation='sigmoid')(x)
-
-model = Model(inputs=base_model.input, outputs=predictions)
-
-model.compile(loss='binary_crossentropy',
-                    optimizer='adam',
-                    metrics=['acc'])
-
-model.summary()
-
-# Assuming train_generator and validation_generator are your data generators
-history = model.fit(
-    train_generator,
-    steps_per_epoch=len(train_generator),
-    epochs=10,
-    validation_data=validation_generator,
-    validation_steps=len(validation_generator)
-)
-
-model.save('pneumonia_cnn_resnet.h5')
-
-
-
-
-
-
+cm = confusion_matrix(true_labels, pred_labels)
+tn, fp, fn, tp = cm.ravel()
+ax = sns.heatmap(cm, annot=True, fmt="d")
+plt.savefig("heatmap_cnn.png", dpi = 600)
     
-
-
-
-
-
-
-
