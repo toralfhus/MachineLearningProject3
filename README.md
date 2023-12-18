@@ -38,7 +38,7 @@ The repository uses a set of library functions from different open sources, incl
 * pytorch
 * pyradiomics
 * tensorflow
-* 
+ 
 Any compatible set of versions should work, but your milage may vary.
 
 ## License
