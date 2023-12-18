@@ -13,7 +13,8 @@ This repository contains functions and outputs for project 3 of course applied d
 The task focus on using different tools to classify x-ray images into either normal, or diagnosed with pnemonia.
 
 ### Hand crafted features
-### Radiomics features with FFN
+### Radiomics features with LR, RF, XGB, and a FFNN
+1023 hand-crafted radiomic features were extracted using the pyRadiomics package. Using scikit-learn a logistic regression (LR), random forest (RF), and XGBoost (XGB) model was evaluated in addition to a dense feedforward neural network (FFNN) using pytorch. Recursive feature elimination (RFE) was applied before training and testing the models, evaluated on average f1-score across a 3-fold cross validation applied to the training data.
 
 ### CNN
 
@@ -35,6 +36,7 @@ The repository uses a set of library functions from different open sources, incl
 * seaborn
 * pandas
 * pytorch
+* pyradiomics
 
 Any compatible set of versions should work, but your milage may vary.
 
